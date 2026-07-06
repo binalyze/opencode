@@ -6,9 +6,11 @@ import { AgentV2 } from "../agent"
 import { PermissionV2 } from "../permission"
 import { SessionMessage } from "../session/message"
 import { SessionSchema } from "../session/schema"
+import { Location } from "../location"
 import { ToolOutputStore } from "../tool-output-store"
 import { Wildcard } from "../util/wildcard"
 import { ApplicationTools } from "./application-tools"
+import { ToolPluginHooks } from "./plugin-hooks"
 import { definition, permission, settle, validateName, type AnyTool, type RegistrationError } from "./tool"
 import { Tools } from "./tools"
 import { makeLocationNode } from "../effect/app-node"
@@ -44,6 +46,7 @@ const registryLayer = Layer.effect(
   Effect.gen(function* () {
     const applications = yield* ApplicationTools.Service
     const resources = yield* ToolOutputStore.Service
+    const location = yield* Location.Service
     type Registration = { readonly identity: object; readonly tool: AnyTool }
     const local = new Map<string, Array<{ readonly token: object; readonly registration: Registration }>>()
 
@@ -59,6 +62,18 @@ const registryLayer = Layer.effect(
         }
       if (advertised && registration.identity !== advertised)
         return { result: { type: "error" as const, value: `Stale tool call: ${input.call.name}` } }
+      // Fire the V1 plugin `tool.execute.before` hook (see ./plugin-hooks.ts):
+      // hooks mutate the call's input object in place (e.g. re-homing paths)
+      // before the tool decodes it.
+      const hookRunner = ToolPluginHooks.get(location.directory)
+      if (hookRunner && input.call.input !== null && typeof input.call.input === "object") {
+        yield* Effect.promise(() =>
+          hookRunner.toolExecuteBefore(
+            { tool: input.call.name, sessionID: input.sessionID, callID: input.call.id },
+            { args: input.call.input as Record<string, unknown> },
+          ),
+        )
+      }
       const pending = yield* settle(registration.tool, input.call, {
         sessionID: input.sessionID,
         agent: input.agent,
@@ -137,11 +152,11 @@ function whollyDisabled(action: string, rules: PermissionV2.Ruleset) {
 export const node = makeLocationNode({
   service: Service,
   layer,
-  deps: [ApplicationTools.node, ToolOutputStore.node],
+  deps: [ApplicationTools.node, ToolOutputStore.node, Location.node],
 })
 
 export const toolsNode = makeLocationNode({
   service: Tools.Service,
   layer,
-  deps: [ApplicationTools.node, ToolOutputStore.node],
+  deps: [ApplicationTools.node, ToolOutputStore.node, Location.node],
 })

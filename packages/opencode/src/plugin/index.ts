@@ -1,4 +1,5 @@
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { ToolPluginHooks } from "@opencode-ai/core/tool/plugin-hooks"
 import type {
   Hooks,
   PluginInput,
@@ -257,6 +258,26 @@ const layer = Layer.effect(
           })
         })
         yield* Effect.addFinalizer(() => unsubscribe)
+
+        // Bridge the tool-scoped V1 hooks into the V2 native tool path (see
+        // core/tool/plugin-hooks.ts): the native runner executes tools without
+        // the V1 session loop that used to fire `tool.execute.before` and
+        // `shell.env`, so core consults this per-directory runner instead.
+        const offToolHooks = ToolPluginHooks.install(ctx.directory, {
+          toolExecuteBefore: async (input, output) => {
+            for (const hook of hooks) {
+              await hook["tool.execute.before"]?.(input as never, output as never)
+            }
+          },
+          shellEnv: async (input) => {
+            const output = { env: {} as Record<string, string> }
+            for (const hook of hooks) {
+              await hook["shell.env"]?.(input as never, output as never)
+            }
+            return output.env
+          },
+        })
+        yield* Effect.addFinalizer(() => Effect.sync(offToolHooks))
 
         yield* Effect.addFinalizer(() =>
           Effect.forEach(

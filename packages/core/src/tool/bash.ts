@@ -7,10 +7,12 @@ import { ChildProcess } from "effect/unstable/process"
 import { Config } from "../config"
 import { makeLocationNode } from "../effect/app-node"
 import { FSUtil } from "../fs-util"
+import { Location } from "../location"
 import { LocationMutation } from "../location-mutation"
 import { AppProcess } from "../process"
 import { PermissionV2 } from "../permission"
 import { PositiveInt } from "../schema"
+import { ToolPluginHooks } from "./plugin-hooks"
 import { ToolRegistry } from "./registry"
 import { Tool } from "./tool"
 import { Tools } from "./tools"
@@ -67,7 +69,6 @@ const isTimeout = (error: AppProcess.AppProcessError) =>
 // TODO: Port BashArity reusable command-prefix approvals.
 // TODO: Replace token-based command-argument external-directory advisories with parser-based detection.
 // TODO: Restore PowerShell and cmd-specific invocation/path handling on Windows.
-// TODO: Add plugin shell.env environment augmentation once V2 plugin hooks exist.
 // TODO: Add durable/live progress metadata streaming for long-running commands once V2 tool invocation progress context is wired.
 // TODO: Persist background job status and define restart recovery before exposing remote observation.
 // TODO: Re-add model-facing background launch only with owner-bound get/wait/cancel tools and completion delivery.
@@ -98,6 +99,7 @@ const layer = Layer.effectDiscard(
     const appProcess = yield* AppProcess.Service
     const config = yield* Config.Service
     const permission = yield* PermissionV2.Service
+    const location = yield* Location.Service
 
     yield* tools
       .register({
@@ -151,12 +153,21 @@ const layer = Layer.effectDiscard(
               const shell =
                 Object.assign({}, ...entries.flatMap((entry) => (entry.type === "document" ? [entry.info] : [])))
                   .shell ?? defaultShell()
+              // V1 plugin `shell.env` hook (see ./plugin-hooks.ts): plugins
+              // augment the agent shell's environment (e.g. SESSION_WORKSPACE).
+              const hookRunner = ToolPluginHooks.get(location.directory)
+              const hookEnv = hookRunner
+                ? yield* Effect.promise(() =>
+                    hookRunner.shellEnv({ sessionID: context.sessionID, cwd: target.canonical }),
+                  )
+                : undefined
               const command = ChildProcess.make(input.command, [], {
                 cwd: target.canonical,
                 shell,
                 stdin: "ignore",
                 detached: process.platform !== "win32",
                 forceKillAfter: Duration.seconds(3),
+                ...(hookEnv && Object.keys(hookEnv).length > 0 ? { env: hookEnv, extendEnv: true } : {}),
               })
               const timeout = input.timeout ?? DEFAULT_TIMEOUT_MS
               const result = yield* appProcess
@@ -199,5 +210,13 @@ const layer = Layer.effectDiscard(
 export const node = makeLocationNode({
   name: "tool/bash",
   layer,
-  deps: [ToolRegistry.node, LocationMutation.node, FSUtil.node, AppProcess.node, Config.node, PermissionV2.node],
+  deps: [
+    ToolRegistry.node,
+    LocationMutation.node,
+    FSUtil.node,
+    AppProcess.node,
+    Config.node,
+    PermissionV2.node,
+    Location.node,
+  ],
 })
