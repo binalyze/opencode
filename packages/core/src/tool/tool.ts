@@ -131,6 +131,47 @@ export function make<
   return tool
 }
 
+/**
+ * Fleet fork patch (see platform-v2/docs/OPENCODE-FORK.md): dynamic tool
+ * constructor for plugin-shape custom tools discovered from
+ * OPENCODE_CONFIG_DIR. Takes a pre-built JSON Schema instead of an Effect
+ * Schema (custom tools declare Zod args; the discovery layer converts them),
+ * and executes a Promise-returning function against the raw call input — the
+ * `tool.execute.before` plugin hook has already mutated that input in place
+ * by the time `settle` runs, so the session-workspace jail applies. Mirrors
+ * the dynamic JSON-schema mode of `packages/llm/src/tool.ts` `Tool.make`.
+ */
+export function fromJsonSchema(config: {
+  readonly description: string
+  readonly inputSchema: JsonSchema.JsonSchema
+  readonly execute: (input: unknown, context: Context, signal: AbortSignal) => Promise<ToolOutput>
+}): AnyTool {
+  const tool = Object.freeze({}) as AnyTool
+  const definitions = new Map<string, ToolDefinition>()
+  runtimes.set(tool, {
+    definition: (name) => {
+      const cached = definitions.get(name)
+      if (cached) return cached
+      const definition = new ToolDefinition({
+        name,
+        description: config.description,
+        inputSchema: config.inputSchema,
+      })
+      definitions.set(name, definition)
+      return definition
+    },
+    settle: (call, context) =>
+      Effect.tryPromise({
+        try: (signal) => config.execute(call.input, context, signal),
+        catch: (error) =>
+          error instanceof ToolFailure
+            ? error
+            : new ToolFailure({ message: error instanceof Error ? error.message : String(error) }),
+      }),
+  })
+  return tool
+}
+
 export const validateName = (name: string) =>
   /^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(name)
     ? Effect.void

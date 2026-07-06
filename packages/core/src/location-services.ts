@@ -33,6 +33,7 @@ import { Snapshot } from "./snapshot"
 import { SystemContextBuiltIns } from "./system-context/builtins"
 import { SystemContextRegistry } from "./system-context/registry"
 import { BuiltInTools } from "./tool/builtins"
+import { CustomTools } from "./tool/custom-tools"
 import { ReadToolFileSystem } from "./tool/read-filesystem"
 import { ToolRegistry } from "./tool/registry"
 import { ToolOutputStore } from "./tool-output-store"
@@ -73,6 +74,9 @@ export const locationServices = LayerNode.group([
   QuestionV2.node,
   ReadToolFileSystem.node,
   BuiltInTools.node,
+  // Fleet fork patch: plugin-shape custom tools discovered from
+  // OPENCODE_CONFIG_DIR (see platform-v2/docs/OPENCODE-FORK.md).
+  CustomTools.node,
   SessionRunnerModel.node,
   Snapshot.node,
   SessionRunnerLLM.node,
