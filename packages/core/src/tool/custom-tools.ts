@@ -13,7 +13,7 @@ export * as CustomTools from "./custom-tools"
 
 import type { JSONSchema7, JSONSchema7Definition } from "@ai-sdk/provider"
 import { ToolOutput } from "@opencode-ai/llm"
-import type { ToolContext as PluginToolContext, ToolDefinition as PluginToolDefinition } from "@opencode-ai/plugin"
+import type { ToolContext as PluginToolContext, ToolDefinition as PluginToolDefinition } from "@opencode-ai/plugin/tool"
 import { Effect, Layer, type JsonSchema, type Scope } from "effect"
 import path from "path"
 import { pathToFileURL } from "url"
