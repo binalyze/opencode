@@ -111,6 +111,7 @@ describe("CustomTools", () => {
           if (typeof output.args["text"] === "string") output.args["text"] = `${output.args["text"]}-jailed`
         },
         shellEnv: async () => ({}),
+        chatSystemTransform: async () => {},
       })
       const registry = yield* ToolRegistry.Service
       const result = yield* executeTool(registry, call("echo", { text: "raw" }, "call-echo-hook")).pipe(

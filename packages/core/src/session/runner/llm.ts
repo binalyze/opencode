@@ -21,6 +21,7 @@ import { SystemContext } from "../../system-context/index"
 import { SystemContextRegistry } from "../../system-context/registry"
 import { SkillGuidance } from "../../skill/guidance"
 import { ReferenceGuidance } from "../../reference/guidance"
+import { ToolPluginHooks } from "../../tool/plugin-hooks"
 import { ToolRegistry } from "../../tool/registry"
 import { ToolOutputStore } from "../../tool-output-store"
 import { SessionContextEpoch } from "../context-epoch"
@@ -197,12 +198,21 @@ const layer = Layer.effect(
       const isLastStep = agent.info?.steps !== undefined && currentStep >= agent.info.steps
       const toolMaterialization = isLastStep ? undefined : yield* tools.materialize(agent.info?.permissions)
       const promptCacheKey = /^ses_[0-9a-f]{64}$/.test(session.id) ? session.id.slice(4) : session.id
+      // Fire the V1 plugin `experimental.chat.system.transform` hook (see
+      // ../../tool/plugin-hooks.ts): hooks append per-session system blocks
+      // (thread-workspace path, user memories, builder edit target) that the
+      // native runner's baseline assembly otherwise drops.
+      const systemTexts = [agent.info?.system, system.baseline].filter(
+        (part): part is string => part !== undefined && part.length > 0,
+      )
+      const hookRunner = ToolPluginHooks.get(location.directory)
+      if (hookRunner) {
+        yield* Effect.promise(() => hookRunner.chatSystemTransform({ sessionID: session.id }, { system: systemTexts }))
+      }
       const request = LLM.request({
         model,
         providerOptions: { openai: { promptCacheKey } },
-        system: [agent.info?.system, system.baseline]
-          .filter((part): part is string => part !== undefined && part.length > 0)
-          .map(SystemPart.make),
+        system: systemTexts.map(SystemPart.make),
         messages: [...toLLMMessages(context, model), ...(isLastStep ? [Message.assistant(MAX_STEPS_PROMPT)] : [])],
         tools: toolMaterialization?.definitions ?? [],
         toolChoice: isLastStep ? "none" : undefined,

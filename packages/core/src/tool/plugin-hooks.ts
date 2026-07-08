@@ -25,6 +25,16 @@ export type Runner = {
     readonly sessionID?: string
     readonly cwd: string
   }) => Promise<Record<string, string>>
+  /**
+   * V1 `experimental.chat.system.transform`: hooks append/edit system-prompt
+   * blocks in place (per-session context like the thread-workspace path, user
+   * memories, and the agent-builder edit target). The native runner assembles
+   * its system prompt without the V1 request path that used to fire this.
+   */
+  readonly chatSystemTransform: (
+    input: { readonly sessionID?: string },
+    output: { readonly system: string[] },
+  ) => Promise<void>
 }
 
 const runners = new Map<string, Runner>()

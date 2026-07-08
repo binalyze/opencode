@@ -276,6 +276,11 @@ const layer = Layer.effect(
             }
             return output.env
           },
+          chatSystemTransform: async (input, output) => {
+            for (const hook of hooks) {
+              await hook["experimental.chat.system.transform"]?.(input as never, output as never)
+            }
+          },
         })
         yield* Effect.addFinalizer(() => Effect.sync(offToolHooks))
 
