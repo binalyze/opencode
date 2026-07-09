@@ -32,6 +32,7 @@ import { SessionInput } from "../input"
 import { SessionSchema } from "../schema"
 import { SessionStore } from "../store"
 import { type RunError, Service } from "./index"
+import { SessionTurnRetry } from "./turn-retry"
 import { SessionRunnerModel } from "./model"
 import { createLLMEventPublisher } from "./publish-llm-event"
 import { toLLMMessages } from "./to-llm-message"
@@ -398,8 +399,26 @@ const layer = Layer.effect(
       while (shouldRun) {
         let needsContinuation = true
         let step = 1
+        // Fleet fork patch, part 3 (see platform-v2/docs/OPENCODE-FORK.md):
+        // bounded retry for transient provider failures — the "Bound provider
+        // retries" TODO above. The failed attempt has already persisted its
+        // errored assistant message (failAssistant); the retry starts a fresh
+        // provider turn from the reloaded projected history. Consecutive
+        // failures only — any successful turn resets the budget.
+        let turnRetries = 0
         while (needsContinuation) {
-          const result = yield* runTurn(input.sessionID, promotion, step)
+          const attempt = yield* runTurn(input.sessionID, promotion, step).pipe(Effect.exit)
+          if (attempt._tag === "Failure") {
+            const retryable = SessionTurnRetry.retryableFailure(attempt.cause)
+            if (!retryable || turnRetries >= SessionTurnRetry.MAX_ATTEMPTS)
+              return yield* Effect.failCause(attempt.cause)
+            turnRetries += 1
+            yield* Effect.sleep(SessionTurnRetry.delayMs(turnRetries, retryable))
+            promotion = undefined
+            continue
+          }
+          turnRetries = 0
+          const result = attempt.value
           needsContinuation = result.needsContinuation
           step = result.step + 1
           promotion = "steer"
