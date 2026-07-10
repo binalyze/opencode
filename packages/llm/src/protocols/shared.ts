@@ -162,7 +162,13 @@ export const MEDIA_MIMES = [...IMAGE_MIMES, ...VIDEO_MIMES, ...AUDIO_MIMES] as c
 export const MAX_MEDIA_ENCODED_BYTES = 28 * 1024 * 1024
 export const MAX_MEDIA_DECODED_BYTES = 20 * 1024 * 1024
 
-const base64Pattern = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
+// Keep this pattern linear (single char-class, no nested quantifiers): JSC's
+// regex engine exhausts its internal stack on `(?:...{4})*`-style patterns over
+// multi-MB inputs and reports NO MATCH instead of throwing, so a valid ~4 MB
+// image would be rejected as invalid base64. The group-of-4 structure this no
+// longer expresses is enforced by the `length % 4` check and the canonical
+// decode roundtrip in `validateMedia` below.
+const base64Pattern = /^[A-Za-z0-9+/]*={0,2}$/
 
 export interface ValidatedMedia {
   readonly mime: string
